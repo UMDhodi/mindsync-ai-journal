@@ -57,11 +57,19 @@ export function getTenantStore(userId: string) {
   return tenantMemoryStores.get(userId)!;
 }
 
+// Detect Vercel serverless environment without explicit GCP Service Account credentials
+const isVercelWithoutCredentials =
+  Boolean(process.env.VERCEL) &&
+  !process.env.GOOGLE_APPLICATION_CREDENTIALS &&
+  !process.env.FIREBASE_SERVICE_ACCOUNT &&
+  !process.env.FIREBASE_PRIVATE_KEY;
+
 // In default Google AI Studio compute environments, gen-ai-7d0f4 does not have Cloud Firestore API enabled.
-// Detect unprovisioned projects to prevent failing gRPC calls and 7 PERMISSION_DENIED console warnings.
+// On Vercel without service account credentials, gRPC will hang attempting to query Google metadata server.
 const isUnprovisionedProject =
-  !process.env.FIREBASE_CONFIG &&
-  (!process.env.VITE_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID === 'gen-ai-7d0f4');
+  isVercelWithoutCredentials ||
+  (!process.env.FIREBASE_CONFIG &&
+    (!process.env.VITE_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID === 'gen-ai-7d0f4'));
 
 let liveFirestoreAvailable = !isUnprovisionedProject;
 
@@ -74,21 +82,33 @@ function isLiveFirestoreActive(): boolean {
   }
 }
 
+/**
+ * Executes a promise with a strict timeout to ensure serverless functions never hang.
+ */
+async function runWithTimeout<T>(promise: Promise<T>, timeoutMs = 2500): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Firestore operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 function handleFirestoreError(action: string, err: any) {
-  if (
-    err?.code === 7 ||
-    err?.message?.includes('PERMISSION_DENIED') ||
-    err?.message?.includes('not been used') ||
-    err?.message?.includes('disabled')
-  ) {
-    if (liveFirestoreAvailable) {
-      liveFirestoreAvailable = false;
-      console.info(
-        `[FirestoreService] Cloud Firestore is disabled or unprovisioned in current project. Operating in secure tenant-isolated memory store.`
-      );
-    }
-  } else {
-    console.warn(`[FirestoreService] ${action} warning:`, err?.message || err);
+  if (liveFirestoreAvailable) {
+    liveFirestoreAvailable = false;
+    console.info(
+      `[FirestoreService] Live Firestore operation '${action}' unavailable (${err?.message || err}). Operating in secure tenant-isolated memory store.`
+    );
   }
 }
 
@@ -102,12 +122,10 @@ export async function getUserSessions(userId: string): Promise<JournalSession[]>
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      const snapshot = await db
-        .collection('users')
-        .doc(userId)
-        .collection('sessions')
-        .orderBy('updatedAt', 'desc')
-        .get();
+      const snapshot = await runWithTimeout(
+        db.collection('users').doc(userId).collection('sessions').orderBy('updatedAt', 'desc').get(),
+        2500
+      );
 
       return snapshot.docs.map((doc) => ({
         id: doc.id,
@@ -133,12 +151,10 @@ export async function getSession(userId: string, sessionId: string): Promise<Jou
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      const doc = await db
-        .collection('users')
-        .doc(userId)
-        .collection('sessions')
-        .doc(sessionId)
-        .get();
+      const doc = await runWithTimeout(
+        db.collection('users').doc(userId).collection('sessions').doc(sessionId).get(),
+        2500
+      );
 
       if (!doc.exists) return null;
       return { id: doc.id, ...doc.data() } as JournalSession;
@@ -182,12 +198,10 @@ export async function createSession(
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      await db
-        .collection('users')
-        .doc(userId)
-        .collection('sessions')
-        .doc(sessionId)
-        .set(newSession);
+      await runWithTimeout(
+        db.collection('users').doc(userId).collection('sessions').doc(sessionId).set(newSession),
+        2500
+      );
     } catch (err: any) {
       handleFirestoreError('createSession', err);
     }
@@ -219,12 +233,10 @@ export async function updateSession(
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      await db
-        .collection('users')
-        .doc(userId)
-        .collection('sessions')
-        .doc(sessionId)
-        .update(merged);
+      await runWithTimeout(
+        db.collection('users').doc(userId).collection('sessions').doc(sessionId).update(merged),
+        2500
+      );
     } catch (err: any) {
       handleFirestoreError('updateSession', err);
     }
@@ -246,12 +258,10 @@ export async function deleteSession(userId: string, sessionId: string): Promise<
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      await db
-        .collection('users')
-        .doc(userId)
-        .collection('sessions')
-        .doc(sessionId)
-        .delete();
+      await runWithTimeout(
+        db.collection('users').doc(userId).collection('sessions').doc(sessionId).delete(),
+        2500
+      );
     } catch (err: any) {
       handleFirestoreError('deleteSession', err);
     }
@@ -290,14 +300,17 @@ export async function addMessage(
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      await db
-        .collection('users')
-        .doc(userId)
-        .collection('sessions')
-        .doc(sessionId)
-        .collection('messages')
-        .doc(msgId)
-        .set(fullMessage);
+      await runWithTimeout(
+        db
+          .collection('users')
+          .doc(userId)
+          .collection('sessions')
+          .doc(sessionId)
+          .collection('messages')
+          .doc(msgId)
+          .set(fullMessage),
+        2500
+      );
     } catch (err: any) {
       handleFirestoreError('addMessage', err);
     }
@@ -319,14 +332,17 @@ export async function getSessionMessages(userId: string, sessionId: string): Pro
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      const snapshot = await db
-        .collection('users')
-        .doc(userId)
-        .collection('sessions')
-        .doc(sessionId)
-        .collection('messages')
-        .orderBy('timestamp', 'asc')
-        .get();
+      const snapshot = await runWithTimeout(
+        db
+          .collection('users')
+          .doc(userId)
+          .collection('sessions')
+          .doc(sessionId)
+          .collection('messages')
+          .orderBy('timestamp', 'asc')
+          .get(),
+        2500
+      );
 
       return snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as JournalMessage[];
     } catch (err: any) {
@@ -352,15 +368,18 @@ export async function saveCognitiveAnalysis(
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      await db
-        .collection('users')
-        .doc(userId)
-        .collection('summaries')
-        .doc(sessionId)
-        .set({
-          ...analysis,
-          updatedAt: new Date().toISOString(),
-        });
+      await runWithTimeout(
+        db
+          .collection('users')
+          .doc(userId)
+          .collection('summaries')
+          .doc(sessionId)
+          .set({
+            ...analysis,
+            updatedAt: new Date().toISOString(),
+          }),
+        2500
+      );
     } catch (err: any) {
       handleFirestoreError('saveCognitiveAnalysis', err);
     }
@@ -384,12 +403,10 @@ export async function getCognitiveAnalysis(
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      const doc = await db
-        .collection('users')
-        .doc(userId)
-        .collection('summaries')
-        .doc(sessionId)
-        .get();
+      const doc = await runWithTimeout(
+        db.collection('users').doc(userId).collection('summaries').doc(sessionId).get(),
+        2500
+      );
 
       if (doc.exists) {
         return doc.data() as CognitiveAnalysisResult;
@@ -417,15 +434,18 @@ export async function saveConceptGraph(
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      await db
-        .collection('users')
-        .doc(userId)
-        .collection('graphs')
-        .doc(sessionId)
-        .set({
-          ...graph,
-          updatedAt: new Date().toISOString(),
-        });
+      await runWithTimeout(
+        db
+          .collection('users')
+          .doc(userId)
+          .collection('graphs')
+          .doc(sessionId)
+          .set({
+            ...graph,
+            updatedAt: new Date().toISOString(),
+          }),
+        2500
+      );
     } catch (err: any) {
       handleFirestoreError('saveConceptGraph', err);
     }
@@ -442,12 +462,10 @@ export async function getConceptGraph(
   if (isLiveFirestoreActive()) {
     try {
       const db = getFirestore();
-      const doc = await db
-        .collection('users')
-        .doc(userId)
-        .collection('graphs')
-        .doc(sessionId)
-        .get();
+      const doc = await runWithTimeout(
+        db.collection('users').doc(userId).collection('graphs').doc(sessionId).get(),
+        2500
+      );
 
       if (doc.exists) {
         return doc.data() as ConceptGraphData;

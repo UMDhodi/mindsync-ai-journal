@@ -62,15 +62,24 @@ export async function getGeminiApiKey(): Promise<string> {
 
   // 2. Secret Manager on GCP Cloud Run
   // Project ID is auto-derived from GCP_PROJECT or GOOGLE_CLOUD_PROJECT (built into GCP/AI environment)
+  const isVercel = Boolean(process.env.VERCEL);
+  const hasGcpCredentials = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS);
   const projectId = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID;
   const secretName = process.env.GEMINI_SECRET_NAME || 'gemini-api-key';
 
-  if (projectId) {
+  if (projectId && (!isVercel || hasGcpCredentials)) {
     try {
       const smClient = await getSecretManagerClient();
       if (smClient) {
         const name = `projects/${projectId}/secrets/${secretName}/versions/latest`;
-        const [version] = await smClient.accessSecretVersion({ name });
+        const accessPromise = smClient.accessSecretVersion({ name });
+        // Enforce strict 2.5s timeout on secret retrieval
+        const [version] = await Promise.race([
+          accessPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Secret Manager lookup timed out')), 2500)
+          ),
+        ]);
         const payload = version.payload?.data?.toString();
 
         if (payload && payload.trim()) {

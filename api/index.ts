@@ -39,12 +39,22 @@ app.get(['/api/health', '/health'], async (req: Request, res: Response) => {
 app.use('/api', journalRouter);
 app.use(journalRouter);
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[API Process Unhandled Rejection]:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[API Process Uncaught Exception]:', err);
+});
+
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('[API Error Handler]', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
-    code: err.code || 'INTERNAL_ERROR',
-  });
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({
+      error: err.message || 'Internal Server Error',
+      code: err.code || 'INTERNAL_ERROR',
+    });
+  }
 });
 
 export default app;

@@ -33,11 +33,31 @@ async function generateWithFallback(ai: GoogleGenAI, params: any) {
 
   for (const model of models) {
     try {
-      return await ai.models.generateContent({
+      const callPromise = ai.models.generateContent({
         ...params,
         model,
       });
+
+      return await Promise.race([
+        callPromise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Gemini inference for model ${model} timed out after 20s`)), 20000)
+        ),
+      ]);
     } catch (err: any) {
+      // Fail fast on API key or authentication errors; retrying with other models won't resolve key issues
+      const isAuthError =
+        err?.status === 400 ||
+        err?.status === 401 ||
+        err?.status === 403 ||
+        err?.message?.includes('API_KEY_INVALID') ||
+        err?.message?.includes('API key not valid') ||
+        err?.message?.includes('PERMISSION_DENIED');
+
+      if (isAuthError) {
+        throw err;
+      }
+
       const isDemandSpike =
         err?.status === 503 ||
         err?.message?.includes('503') ||
