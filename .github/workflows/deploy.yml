@@ -1,0 +1,61 @@
+name: Deploy MindSync AI to Google Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  SERVICE_NAME: mindsync-ai-journal
+  REGION: us-central1
+  SERVICE_LABELS: dev-tutorial=cloud-run-ai-challenge
+
+jobs:
+  deploy:
+    name: Build & Deploy to Google Cloud Run
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Code Linter & Tests
+        run: npm run lint
+
+      - name: Build Application
+        run: npm run build
+
+      # Optional: To automate continuous deployment from GitHub Actions to Google Cloud Run,
+      # configure Workload Identity Federation or GCP credentials in GitHub repository secrets:
+      # - GCP_PROJECT_ID
+      # - WIF_PROVIDER (or GCP_SA_KEY)
+      - name: Google Cloud Authentication (Optional CI/CD)
+        if: "${{ env.GCP_PROJECT_ID != '' }}"
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Deploy to Cloud Run
+        if: "${{ env.GCP_PROJECT_ID != '' }}"
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          source: ./
+          labels: ${{ env.SERVICE_LABELS }}
+          flags: '--allow-unauthenticated --port=3000'

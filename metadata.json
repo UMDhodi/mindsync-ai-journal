@@ -1,0 +1,6 @@
+{
+  "name": "MindSync AI - Personal Gemini Journal",
+  "description": "Secure, multi-tenant Personal Gemini Journal & Brainstorming Web Application backed by Firebase Auth, Cloud Firestore with strict user isolation, Google Cloud Secret Manager, and MindSync Cognitive Engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
