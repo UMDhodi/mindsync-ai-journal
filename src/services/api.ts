@@ -175,10 +175,51 @@ export const api = {
     modelMessage: JournalMessage;
     safety: { flagged: boolean; detectedPatterns: string[]; warnings?: string[] };
   }> {
-    return fetchWithAuth(`/api/sessions/${sessionId}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content, isEncrypted }),
-    });
+    try {
+      return await fetchWithAuth(`/api/sessions/${sessionId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ content, isEncrypted }),
+      });
+    } catch (err: any) {
+      console.warn('[API] Server sendMessage failed, using resilient offline fallback:', err);
+      const userMessage: JournalMessage = {
+        id: `msg_local_${Date.now()}_u`,
+        sessionId,
+        userId: 'offline-user',
+        role: 'user',
+        content,
+        timestamp: new Date().toISOString(),
+        isEncrypted,
+      };
+
+      const isKeyOrVercel =
+        err?.message?.includes('Vercel') ||
+        err?.message?.includes('FUNCTION_INVOCATION_FAILED') ||
+        err?.message?.includes('GEMINI_API_KEY');
+
+      const fallbackNote = isKeyOrVercel
+        ? `I have securely recorded your reflection. 💡 **Vercel Setup Reminder**: If running on Vercel, make sure you have added **\`GEMINI_API_KEY\`** in your **Vercel Dashboard → Project Settings → Environment Variables**.`
+        : `Your reflection was saved locally. (The AI server is temporarily unreachable: ${err?.message?.slice(0, 100) || 'network issue'}). You can continue journaling uninterrupted.`;
+
+      const modelMessage: JournalMessage = {
+        id: `msg_local_${Date.now()}_m`,
+        sessionId,
+        userId: 'offline-user',
+        role: 'model',
+        content: fallbackNote,
+        timestamp: new Date().toISOString(),
+        isEncrypted: false,
+      };
+
+      localStore.saveMessage(sessionId, userMessage);
+      localStore.saveMessage(sessionId, modelMessage);
+
+      return {
+        userMessage,
+        modelMessage,
+        safety: { flagged: false, detectedPatterns: [] },
+      };
+    }
   },
 
   async triggerAnalysis(sessionId: string): Promise<CognitiveAnalysis> {

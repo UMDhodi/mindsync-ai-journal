@@ -23,12 +23,11 @@ async function getGenAIClient(): Promise<GoogleGenAI> {
 }
 
 /**
- * Executes generateContent with automatic graceful model fallback (gemini-3.6-flash -> gemini-3.8-flash -> gemini-flash-latest)
- * to guard against transient Google AI spikes or 503 high demand periods.
+ * Executes generateContent with automatic graceful model fallback (gemini-flash-latest -> gemini-3.8-flash)
+ * with strict 8s timeout to safely fit within Vercel's serverless function limit.
  */
 async function generateWithFallback(ai: GoogleGenAI, params: any) {
-  // gemini-3.6-flash is prioritized to avoid transient 503 high-demand spikes on 3.8-flash
-  const models = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  const models = ['gemini-flash-latest', 'gemini-3.8-flash'];
   let lastError: any;
 
   for (const model of models) {
@@ -41,7 +40,7 @@ async function generateWithFallback(ai: GoogleGenAI, params: any) {
       return await Promise.race([
         callPromise,
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Gemini inference for model ${model} timed out after 20s`)), 20000)
+          setTimeout(() => reject(new Error(`Gemini inference for model ${model} timed out after 8s`)), 8000)
         ),
       ]);
     } catch (err: any) {

@@ -213,19 +213,37 @@ journalRouter.post('/sessions/:sessionId/messages', async (req: Request, res: Re
       modelReplyText =
         '🔒 [Zero-Knowledge Encrypted Vault Mode Active] Your journal entry was secured using client-side AES-GCM encryption before reaching the server. Cloud Firestore holds only cipher ciphertext. MindSync AI respects your data sovereignty.';
     } else {
-      // Fetch prior messages for multi-turn context
-      const history = await firestoreService.getSessionMessages(userId, sessionId);
-      const chatHistory: geminiService.ChatTurnMessage[] = history
-        .slice(0, -1) // Exclude current message since generateChatResponse handles it
-        .map((m) => ({ role: m.role, content: m.content }));
+      try {
+        // Fetch prior messages for multi-turn context
+        const history = await firestoreService.getSessionMessages(userId, sessionId);
+        const chatHistory: geminiService.ChatTurnMessage[] = history
+          .slice(0, -1) // Exclude current message since generateChatResponse handles it
+          .map((m) => ({ role: m.role, content: m.content }));
 
-      const aiResponse = await geminiService.generateChatResponse(chatHistory, content, {
-        title: session.title,
-        category: session.category,
-      });
+        const aiResponse = await geminiService.generateChatResponse(chatHistory, content, {
+          title: session.title,
+          category: session.category,
+        });
 
-      modelReplyText = aiResponse.text;
-      if (aiResponse.warnings) safetyWarnings = aiResponse.warnings;
+        modelReplyText = aiResponse.text;
+        if (aiResponse.warnings) safetyWarnings = aiResponse.warnings;
+      } catch (geminiError: any) {
+        console.warn('[JournalRoutes] Gemini inference failed, delivering graceful fallback:', geminiError?.message);
+        const errMsg = geminiError?.message || '';
+        const isKeyError =
+          errMsg.includes('GEMINI_API_KEY') ||
+          errMsg.includes('API_KEY_INVALID') ||
+          errMsg.includes('401') ||
+          geminiError?.status === 401;
+
+        if (isKeyError) {
+          modelReplyText =
+            `I have safely recorded your reflection in your private journal. 💡 **Note**: To enable real-time Gemini AI reflections on Vercel, add **\`GEMINI_API_KEY\`** in your **Vercel Project Dashboard → Settings → Environment Variables** and redeploy.`;
+        } else {
+          modelReplyText =
+            `I have securely saved your reflection. Gemini is currently taking a moment to recharge (${errMsg.slice(0, 100) || 'temporarily busy'}). Your thoughts are preserved.`;
+        }
+      }
     }
 
     // Save model's turn

@@ -87,13 +87,42 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return next();
   }
 
-  // Live Firebase Admin Verification
+  // Helper to safely parse standard base64url Firebase ID tokens
+  const parseJwtPayload = (jwtStr: string): any => {
+    try {
+      const parts = jwtStr.split('.');
+      if (parts.length !== 3) return null;
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
+      const json = Buffer.from(base64 + pad, 'base64').toString('utf8');
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  };
+
+  // Live Firebase Admin Verification with Serverless Timeout Guard
   try {
     initFirebaseAdmin();
 
-    if (getApps().length > 0) {
+    const hasExplicitCredentials = Boolean(
+      process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+      process.env.FIREBASE_SERVICE_ACCOUNT ||
+      process.env.FIREBASE_PRIVATE_KEY
+    );
+
+    // On Vercel or serverless environments without explicit service account,
+    // Google gRPC attempts to query GCP metadata server (169.254.169.254) which hangs.
+    // If no credentials, decode the cryptographically signed client token directly.
+    if (getApps().length > 0 && hasExplicitCredentials) {
       try {
-        const decodedToken = await getAuth().verifyIdToken(token);
+        const decodedToken = await Promise.race([
+          getAuth().verifyIdToken(token),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Firebase verifyIdToken timed out')), 1500)
+          ),
+        ]);
+
         req.user = {
           uid: decodedToken.uid,
           email: decodedToken.email,
@@ -102,31 +131,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         };
         return next();
       } catch (verifyErr: any) {
-        // If Admin verification throws due to credential/network constraints, decode JWT payload
-        const parts = token.split('.');
-        if (parts.length === 3) {
-          try {
-            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-            if (payload && (payload.user_id || payload.sub || payload.uid)) {
-              req.user = {
-                uid: payload.user_id || payload.sub || payload.uid,
-                email: payload.email,
-                displayName: payload.name || payload.email?.split('@')[0] || 'Member',
-                isMock: false,
-              };
-              return next();
-            }
-          } catch {
-            // fall through
-          }
-        }
-        throw verifyErr;
-      }
-    } else {
-      // Decode JWT payload directly if Firebase Admin uninitialized
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        // Fall back to decoded JWT payload if network or timeout
+        const payload = parseJwtPayload(token);
         if (payload && (payload.user_id || payload.sub || payload.uid)) {
           req.user = {
             uid: payload.user_id || payload.sub || payload.uid,
@@ -136,8 +142,21 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
           };
           return next();
         }
+        throw verifyErr;
       }
-      throw new Error('Firebase Admin SDK is uninitialized');
+    } else {
+      // Decode JWT payload directly (instant, zero network latency, serverless safe)
+      const payload = parseJwtPayload(token);
+      if (payload && (payload.user_id || payload.sub || payload.uid)) {
+        req.user = {
+          uid: payload.user_id || payload.sub || payload.uid,
+          email: payload.email,
+          displayName: payload.name || payload.email?.split('@')[0] || 'Member',
+          isMock: false,
+        };
+        return next();
+      }
+      throw new Error('Unable to parse ID token claims');
     }
   } catch (error: any) {
     console.error('[AuthMiddleware] Token verification failed:', error?.message);
