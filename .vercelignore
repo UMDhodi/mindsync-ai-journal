@@ -2,6 +2,7 @@
 # Prevents duplicate/conflicting route detection in /api
 api/*.js
 api/*.js.map
+bun.lock*
 dist/
 node_modules/
 .git/

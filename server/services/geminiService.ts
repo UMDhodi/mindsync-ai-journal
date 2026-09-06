@@ -4,7 +4,7 @@
  * Powered by @google/genai and Gemini 3.8 Flash.
  */
 import { GoogleGenAI, Type } from '@google/genai';
-import { getGeminiApiKey } from '../config/secrets.ts';
+import { getGeminiApiKey } from '../config/secrets';
 
 /**
  * Returns an initialized GoogleGenAI client with the current Secret Manager / Cached key

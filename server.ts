@@ -11,9 +11,9 @@ import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
-import { journalRouter } from './server/routes/journalRoutes.ts';
-import { getSecretStatus } from './server/config/secrets.ts';
-import { initFirebaseAdmin } from './server/middleware/auth.ts';
+import { journalRouter } from './server/routes/journalRoutes';
+import { getSecretStatus } from './server/config/secrets';
+import { initFirebaseAdmin } from './server/middleware/auth';
 
 dotenv.config();
 

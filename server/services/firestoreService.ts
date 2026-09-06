@@ -5,7 +5,7 @@
  */
 import { getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import type { CognitiveAnalysisResult, ConceptGraphData } from './geminiService.ts';
+import type { CognitiveAnalysisResult, ConceptGraphData } from './geminiService';
 
 export interface JournalSession {
   id: string;

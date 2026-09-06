@@ -2,9 +2,9 @@ import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { journalRouter } from '../server/routes/journalRoutes.ts';
-import { getSecretStatus } from '../server/config/secrets.ts';
-import { initFirebaseAdmin } from '../server/middleware/auth.ts';
+import { journalRouter } from '../server/routes/journalRoutes';
+import { getSecretStatus } from '../server/config/secrets';
+import { initFirebaseAdmin } from '../server/middleware/auth';
 
 dotenv.config();
 

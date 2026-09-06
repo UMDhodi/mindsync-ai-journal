@@ -6,10 +6,10 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth.ts';
-import * as firestoreService from '../services/firestoreService.ts';
-import * as geminiService from '../services/geminiService.ts';
-import { getSecretStatus } from '../config/secrets.ts';
+import { requireAuth } from '../middleware/auth';
+import * as firestoreService from '../services/firestoreService';
+import * as geminiService from '../services/geminiService';
+import { getSecretStatus } from '../config/secrets';
 
 export const journalRouter = express.Router();
 

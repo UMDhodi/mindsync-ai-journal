@@ -6,5 +6,6 @@ coverage/
 *.log
 api/*.js
 api/*.js.map
+bun.lock*
 .env*
 !.env.example

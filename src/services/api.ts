@@ -54,7 +54,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<an
       } catch {
         if (rawText.includes('FUNCTION_INVOCATION_FAILED')) {
           errorDetail =
-            'Vercel Serverless Function Invocation Failed (FUNCTION_INVOCATION_FAILED). Please ensure GEMINI_API_KEY is configured in Vercel Project Settings > Environment Variables, and redeploy the latest commit with api/index.js.';
+            'Vercel Serverless Function Invocation Failed. Please ensure GEMINI_API_KEY is configured in Vercel Project Settings > Environment Variables, and check Vercel Function logs.';
         } else {
           errorDetail = rawText;
         }
